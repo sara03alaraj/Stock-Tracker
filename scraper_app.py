@@ -667,7 +667,7 @@ def scheduled_job():
 def start_background_scheduler():
     scheduler = BackgroundScheduler(timezone=timezone('Asia/Amman'))
     scheduler.add_job(scheduled_job, 'cron', hour=13, minute=0) 
-    scheduler.start()
+    #scheduler.start()
     return scheduler
 
 global_scheduler = start_background_scheduler()
