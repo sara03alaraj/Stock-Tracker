@@ -1,0 +1,14 @@
+.venv/
+.venv-1/
+*.env
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+*.db
+Stock_Update_Draft.eml
+last_run.json
+.streamlit/

@@ -1,0 +1,16 @@
+.venv/
+.venv-1/
+*.env
+.env
+requirements.txt
+**/requirements.txt
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+*.db
+Stock_Update_Draft.eml
+last_run.json
+.streamlit/
