@@ -1,0 +1,22 @@
+{
+    "Jordan (Amman Stock Exchange)": {
+        "last_run": "2026-05-04T09:54:35.332012",
+        "seen_disclosures": [
+            "JIJC_G.A-(JIJC)-2026-05-04_04/05/2026"
+        ],
+        "has_unread_alerts": false,
+        "cached_data": {}
+    },
+    "Palestine (PEX & PCMA)": {
+        "last_run": "2026-05-04T09:07:22.003332",
+        "seen_disclosures": [],
+        "has_unread_alerts": false,
+        "cached_data": {}
+    },
+    "Iraq (Insurance Diwan)": {
+        "last_run": "2026-05-04T09:05:28.676097",
+        "seen_disclosures": [],
+        "has_unread_alerts": false,
+        "cached_data": {}
+    }
+}

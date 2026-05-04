@@ -10,5 +10,4 @@ __pycache__/
 *.sqlite3
 *.db
 Stock_Update_Draft.eml
-last_run.json
 .streamlit/
