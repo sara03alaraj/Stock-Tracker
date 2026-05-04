@@ -41,7 +41,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 # --- CONFIGURATION ---
-CREDENTIALS = {"admin": "password123"} 
+CREDENTIALS = {"admin": "AAC@2010"} 
 STATE_FILE = "last_run.json"
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -499,7 +499,7 @@ def process_updates(market_name, is_background_job=False):
     updates_found = 0
     all_downloaded_files = []
     extracted_table_data = [] 
-    email_body = f"Dear All,\n\nPlease find below the latest Stock Exchange updates for {market_name}:\n\n"
+    email_body = f"Dear Mr.Ala,\n\nPlease find below the latest Stock Exchange updates for {market_name}:\n\n"
     
     if market_name == "Jordan (Amman Stock Exchange)":
         market_data = MARKETS[market_name]
