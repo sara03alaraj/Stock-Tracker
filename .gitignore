@@ -10,4 +10,3 @@ __pycache__/
 *.sqlite3
 *.db
 Stock_Update_Draft.eml
-.streamlit/
