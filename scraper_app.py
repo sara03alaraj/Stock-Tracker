@@ -5,7 +5,6 @@ from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 import json
 import os
-from pathlib import Path
 import pandas as pd
 from datetime import datetime
 import time
@@ -41,18 +40,9 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 # --- CONFIGURATION ---
-CREDENTIALS = {"admin": "AAC@2010"} 
+CREDENTIALS = {"admin": "password123"} 
 STATE_FILE = "last_run.json"
-
-BASE_DIR = Path(__file__).resolve().parent
-
-def find_logo_file():
-    for p in BASE_DIR.glob("*.png"):
-        if p.name.lower() == "logo.png":
-            return str(p)
-    return str(BASE_DIR / "logo.png")
-
-LOGO_FILE = find_logo_file()
+LOGO_FILE = "logo.png" 
 
 MARKETS = {
     "Jordan (Amman Stock Exchange)": {
@@ -121,14 +111,11 @@ def update_app_state(market_name, seen_disclosures, has_unread_alerts, cached_da
     now = datetime.now()
     cleaned_seen = []
     
-    # NEW MEMORY ADJUSTMENT: Delete all old dates, keep only today's seen disclosures
     for uid in seen_disclosures:
         try:
             date_str = uid.split("_")[-1]
             try: uid_date = datetime.strptime(date_str, "%d/%m/%Y").date()
             except: uid_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            
-            # Keep ONLY if it is exactly today's date
             if uid_date == now.date(): 
                 cleaned_seen.append(uid)
         except Exception: 
@@ -172,7 +159,6 @@ def create_email_draft_file(subject, body, file_paths, draft_filename="Stock_Upd
     msg.set_content(body)
     html_content = body.replace('\n', '<br>')
     
-    # Adding basic styling to make the links look clickable in Outlook
     html_body = f"<html><head><style>body, div, p, span {{ font-family: 'Calibri', sans-serif; font-size: 11pt; color: #000000; }} a {{ color: #004475; text-decoration: underline; }}</style></head><body><div>{html_content}</div></body></html>"
     msg.add_alternative(html_body, subtype='html')
 
@@ -210,7 +196,6 @@ def scrape_iraq_disclosures():
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 
-                # 1. Scrape News Links with Exact Dates
                 if category == "اخر الاخبار":
                     post_items = soup.find_all('div', class_='elespare-posts-grid-post-items')
                     for item in post_items:
@@ -261,7 +246,6 @@ def scrape_iraq_disclosures():
                                     "Date": date_str, "File_Links": {'pdf': href} 
                                 })
 
-                # 2. Scrape Documents and PDFs
                 else:
                     links = soup.find_all('a', href=True)
                     for a in links:
@@ -395,7 +379,7 @@ def scrape_pcma_disclosures():
     except Exception as e: print("PCMA Scrape Error:", e)
     return data
 
-def scrape_pex_disclosures_via_api():
+def scrape_pex_disclosures_via_api(start_date=None, end_date=None):
     data = []
     url_list = "https://webapi.pex.ps/api/GetAllDisclosures"
     url_details = "https://webapi.pex.ps/api/GetDisclosureDetails"
@@ -412,6 +396,10 @@ def scrape_pex_disclosures_via_api():
         "TIC": "Al-Takaful Palestinian Insurance", "TPIC": "Tamkeen Palestinian Insurance"
     }
     
+    # Adjust PEX dates based on manual selection From/To
+    start_date_str = start_date.strftime("%Y-%m-%d") if start_date else "2024-01-01"
+    end_date_str = end_date.strftime("%Y-%m-%d") if end_date else datetime.now().strftime("%Y-%m-%d")
+    
     status_box = st.empty()
     status_box.info("🚀 Contacting PEX Secure Database directly...")
     
@@ -419,8 +407,8 @@ def scrape_pex_disclosures_via_api():
         try:
             payload = {
                 "DateRangeModel": {
-                    "StartDate": "2025-01-01", 
-                    "EndDate": datetime.now().strftime("%Y-%m-%d")
+                    "StartDate": start_date_str, 
+                    "EndDate": end_date_str
                 },
                 "CompanySymbol": symbol,
                 "PageIndex": 1,
@@ -493,13 +481,14 @@ def scrape_pex_disclosures_via_api():
     status_box.empty()
     return data
 
-def process_updates(market_name, is_background_job=False):
+def process_updates(market_name, is_background_job=False, manual_start=None, manual_end=None):
     last_run, seen_disclosures, current_unread_status, current_cached_data = get_app_state(market_name)
     last_run_date = last_run.date() 
+        
     updates_found = 0
     all_downloaded_files = []
     extracted_table_data = [] 
-    email_body = f"Dear Mr .Ala,\n\nPlease find below the latest Stock Exchange updates for {market_name}:\n\n"
+    email_body = f"Dear All,\n\nPlease find below the latest Stock Exchange updates for {market_name}:\n\n"
     
     if market_name == "Jordan (Amman Stock Exchange)":
         market_data = MARKETS[market_name]
@@ -519,7 +508,14 @@ def process_updates(market_name, is_background_job=False):
                 
                 unique_id = f"{item_symbol}_{disclosure_name}_{date_str}"
                 
-                if disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures:
+                # Manual Range Check vs Auto Sync Check
+                is_valid_update = False
+                if manual_start and manual_end:
+                    is_valid_update = (manual_start <= disclosure_date.date() <= manual_end)
+                else:
+                    is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures)
+                
+                if is_valid_update:
                     full_company_name = market_data["companies"][item_symbol] 
                     row_files = [] 
                     if file_links:
@@ -545,7 +541,7 @@ def process_updates(market_name, is_background_job=False):
 
     elif market_name == "Palestine (PEX & PCMA)":
         pcma_data = scrape_pcma_disclosures()
-        pex_data = scrape_pex_disclosures_via_api() 
+        pex_data = scrape_pex_disclosures_via_api(start_date=manual_start, end_date=manual_end) 
         scraped_data = pcma_data + pex_data
             
         for item in scraped_data:
@@ -563,7 +559,13 @@ def process_updates(market_name, is_background_job=False):
             
             unique_id = f"{item_symbol}_{disclosure_name}_{date_str}"
             
-            if disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures:
+            is_valid_update = False
+            if manual_start and manual_end:
+                is_valid_update = (manual_start <= disclosure_date.date() <= manual_end)
+            else:
+                is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures)
+            
+            if is_valid_update:
                 row_files = [] 
                 
                 if item_symbol == "PCMA" and file_links:
@@ -592,7 +594,6 @@ def process_updates(market_name, is_background_job=False):
                 })
                 email_body += f"• {item['Security Name']} - {item['Category']} [{date_str}]\n"
                 
-                # Attach Link as PDF fallback if no physical file exists
                 if not row_files and file_links.get('pdf'):
                     email_body += f"  ➔ Document Link: {file_links.get('pdf')}\n"
                     
@@ -613,10 +614,15 @@ def process_updates(market_name, is_background_job=False):
             except: disclosure_date = datetime.now() 
             
             pdf_link_str = file_links.get('pdf', '')
-            # Unique ID with date appended perfectly for memory parsing
             unique_id = f"IRAQ_{disclosure_name}_{pdf_link_str}_{date_str}"
             
-            if disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures:
+            is_valid_update = False
+            if manual_start and manual_end:
+                is_valid_update = (manual_start <= disclosure_date.date() <= manual_end)
+            else:
+                is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures)
+            
+            if is_valid_update:
                 row_files = [] 
                 
                 if file_links and (pdf_link_str.endswith('.pdf') or pdf_link_str.endswith('.docx')):
@@ -638,7 +644,6 @@ def process_updates(market_name, is_background_job=False):
                 })
                 email_body += f"• {item['Security Name']} - {category} - {disclosure_name[:60]}...\n"
                 
-                # Attach Link as PDF fallback if no physical file exists (e.g. News Link)
                 if not row_files and pdf_link_str:
                     email_body += f"  ➔ News/Document Link: {pdf_link_str}\n"
                     
@@ -646,7 +651,7 @@ def process_updates(market_name, is_background_job=False):
                 updates_found += 1
                 
     if updates_found == 0:
-        email_body = f"Dear Mr. Ala,\n\nPlease be advised that no new updates or files were found for {market_name}."
+        email_body = f"Dear All,\n\nPlease be advised that no new updates or files were found for {market_name}."
     else:
         email_body += "\n\nPlease find the relevant files attached or linked for your review.\n\nBest regards,\n\nAutomated Tracker"
         
@@ -655,7 +660,9 @@ def process_updates(market_name, is_background_job=False):
         new_cache = {"email_body": email_body, "downloaded_files": all_downloaded_files, "update_count": updates_found, "table_data": extracted_table_data} if updates_found > 0 else current_cached_data
         update_app_state(market_name, seen_disclosures, new_unread, new_cache)
     else:
-        update_app_state(market_name, seen_disclosures, False, {})
+        # If it's a manual "From-To" pull, DO NOT overwrite the background "Last Sync" tracking memory.
+        if not (manual_start and manual_end):
+            update_app_state(market_name, seen_disclosures, False, {})
         
     return email_body, all_downloaded_files, updates_found, extracted_table_data
 
@@ -667,7 +674,7 @@ def scheduled_job():
 def start_background_scheduler():
     scheduler = BackgroundScheduler(timezone=timezone('Asia/Amman'))
     scheduler.add_job(scheduled_job, 'cron', hour=13, minute=0) 
-    #scheduler.start()
+    # scheduler.start() 
     return scheduler
 
 global_scheduler = start_background_scheduler()
@@ -708,7 +715,20 @@ def main_app():
     st.subheader("Manual Data Extraction")
     
     col_input, _ = st.columns([4.5, 5.5])
-    with col_input: selected_market = st.selectbox("Select Target Market:", list(MARKETS.keys()))
+    with col_input: 
+        selected_market = st.selectbox("Select Target Market:", list(MARKETS.keys()))
+        
+        # --- FROM/TO DATE RANGE UI ---
+        sync_mode = st.radio("Date Filter Method:", ["Use Last Sync Time", "Choose Manual Date Range"], horizontal=True)
+        if sync_mode == "Choose Manual Date Range":
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                manual_start = st.date_input("From (Start Date):", value=datetime.today())
+            with col_d2:
+                manual_end = st.date_input("To (End Date):", value=datetime.today())
+        else:
+            manual_start = None
+            manual_end = None
     
     last_run, _, has_unread_alerts, cached_data = get_app_state(selected_market)
     
@@ -718,7 +738,11 @@ def main_app():
         auto_load_popup(cached_data["update_count"])
 
     last_sync_placeholder = st.empty()
-    last_sync_placeholder.info(f"**Last Sync ({selected_market}):** {last_run.strftime('%Y-%m-%d %H:%M:%S') if last_run != datetime.min else 'Never'}")
+    
+    if manual_start and manual_end:
+        last_sync_placeholder.info(f"**Target Period ({selected_market}):** {manual_start.strftime('%Y-%m-%d')} to {manual_end.strftime('%Y-%m-%d')}")
+    else:
+        last_sync_placeholder.info(f"**Last Sync ({selected_market}):** {last_run.strftime('%Y-%m-%d %H:%M:%S') if last_run != datetime.min else 'Never'}")
         
     col_btn_run, _ = st.columns([4, 6])
     with col_btn_run: run_pressed = st.button("Run Data Extraction", type="primary", use_container_width=True)
@@ -726,14 +750,19 @@ def main_app():
     if run_pressed:
         with st.spinner(f"Extracting updates from {selected_market}..."):
             cleanup_old_files() 
-            result = process_updates(selected_market, is_background_job=False)
+            result = process_updates(selected_market, is_background_job=False, manual_start=manual_start, manual_end=manual_end)
             if result[0] is None:
                 st.warning("Could not find or parse the tables on the website.")
             else:
                 st.session_state.update({"email_body": result[0], "downloaded_files": result[1], "report_ready": True, "update_count": result[2], "table_data": result[3]})
                 st.success(f"Extraction complete. {result[2]} updates found.")
-                new_last_run, _, _, _ = get_app_state(selected_market)
-                last_sync_placeholder.info(f"**Last Sync ({selected_market}):** {new_last_run.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # Update placeholder text accordingly
+                if manual_start and manual_end:
+                    last_sync_placeholder.info(f"**Target Period ({selected_market}):** {manual_start.strftime('%Y-%m-%d')} to {manual_end.strftime('%Y-%m-%d')}")
+                else:
+                    new_last_run, _, _, _ = get_app_state(selected_market)
+                    last_sync_placeholder.info(f"**Last Sync ({selected_market}):** {new_last_run.strftime('%Y-%m-%d %H:%M:%S')}")
 
     if st.session_state["report_ready"] and st.session_state["update_count"] > 0:
         st.markdown("---")
@@ -767,7 +796,7 @@ def main_app():
                     st.session_state["editor_key"] += 1
                     st.rerun()
         
-        selected_files, has_selections, dynamic_email_body = [], False, f"Dear Mr. Ala,\n\nPlease find below the latest Stock Exchange updates for {selected_market}:\n\n"
+        selected_files, has_selections, dynamic_email_body = [], False, f"Dear All,\n\nPlease find below the latest Stock Exchange updates for {selected_market}:\n\n"
         
         for index, row in edited_df.iterrows():
             if row.get("Attach", False):
@@ -779,7 +808,6 @@ def main_app():
                 
                 dynamic_email_body += f"• {sec_name} - {cat} [{date_val}]\n"
                 
-                # Dynamic Link attachment for Outlook drafts
                 if isinstance(row.get("Hidden_Files"), list): 
                     selected_files.extend(row["Hidden_Files"])
                     if not row["Hidden_Files"] and pdf_link and isinstance(pdf_link, str) and pdf_link.startswith("http"):
@@ -801,20 +829,21 @@ def main_app():
 load_theme()
 inject_custom_css()  
 
-# --- Authentication & Routing ---
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
-if "logout" in st.query_params:
+query_params = st.query_params.to_dict() if hasattr(st.query_params, "to_dict") else st.query_params
+
+if query_params.get("logout") == "true" or query_params.get("logout") == ["true"]:
     st.session_state.clear()
     st.session_state["logged_in"] = False
     st.query_params.clear()
+    time.sleep(0.1)
     st.rerun()
     
-elif "auth" in st.query_params:
+elif query_params.get("auth") == "true" or query_params.get("auth") == ["true"]:
     st.session_state["logged_in"] = True
 
-# --- App Launch ---
 if not st.session_state["logged_in"]:
     login()
 else:
