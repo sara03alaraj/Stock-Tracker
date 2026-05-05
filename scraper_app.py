@@ -40,7 +40,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 # --- CONFIGURATION ---
-CREDENTIALS = {"admin": "password123"} 
+CREDENTIALS = {"admin": "AAC@2010"} 
 STATE_FILE = "last_run.json"
 LOGO_FILE = "logo.png" 
 
