@@ -488,7 +488,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
     updates_found = 0
     all_downloaded_files = []
     extracted_table_data = [] 
-    email_body = f"Dear All,\n\nPlease find below the latest Stock Exchange updates for {market_name}:\n\n"
+    email_body = f"Dear Mr. Ala,\n\nPlease find below the latest Stock Exchange updates for {market_name}:\n\n"
     
     if market_name == "Jordan (Amman Stock Exchange)":
         market_data = MARKETS[market_name]
@@ -651,7 +651,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
                 updates_found += 1
                 
     if updates_found == 0:
-        email_body = f"Dear All,\n\nPlease be advised that no new updates or files were found for {market_name}."
+        email_body = f"Dear Mr. Ala,\n\nPlease be advised that no new updates or files were found for {market_name}."
     else:
         email_body += "\n\nPlease find the relevant files attached or linked for your review.\n\nBest regards,\n\nAutomated Tracker"
         
@@ -796,7 +796,7 @@ def main_app():
                     st.session_state["editor_key"] += 1
                     st.rerun()
         
-        selected_files, has_selections, dynamic_email_body = [], False, f"Dear All,\n\nPlease find below the latest Stock Exchange updates for {selected_market}:\n\n"
+        selected_files, has_selections, dynamic_email_body = [], False, f"Dear Mr. Ala,\n\nPlease find below the latest Stock Exchange updates for {selected_market}:\n\n"
         
         for index, row in edited_df.iterrows():
             if row.get("Attach", False):
