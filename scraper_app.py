@@ -42,7 +42,7 @@ def inject_custom_css():
 # --- CONFIGURATION ---
 CREDENTIALS = {"admin": "AAC@2010"} 
 STATE_FILE = "last_run.json"
-LOGO_FILE = "logo.png" 
+LOGO_FILE = "Logo.png" 
 
 MARKETS = {
     "Jordan (Amman Stock Exchange)": {
