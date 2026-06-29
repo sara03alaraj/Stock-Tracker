@@ -682,7 +682,10 @@ global_scheduler = start_background_scheduler()
 def login():
     _, col_login, _ = st.columns([1, 2, 1])
     with col_login:
-        if os.path.exists(LOGO_FILE): st.image(LOGO_FILE, width=250)
+        if os.path.exists(LOGO_FILE):
+            with open(LOGO_FILE, "rb") as _f: _enc = base64.b64encode(_f.read()).decode()
+            st.markdown(f'<div style="text-align:center"><img src="data:image/png;base64,{_enc}" width="250"></div>',
+            unsafe_allow_html=True)
         st.title("Stock Tracker")
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
