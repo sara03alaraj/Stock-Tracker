@@ -42,7 +42,7 @@ def inject_custom_css():
 # --- CONFIGURATION ---
 CREDENTIALS = {"admin": "AAC@2010"} 
 STATE_FILE = "last_run.json"
-LOGO_FILE = "logo.png" 
+LOGO_FILE = "Logo.png" 
 
 MARKETS = {
     "Jordan (Amman Stock Exchange)": {
@@ -88,6 +88,18 @@ ENGLISH_MONTHS = {
     "may": "05", "june": "06", "july": "07", "august": "08",
     "september": "09", "october": "10", "november": "11", "december": "12"
 }
+
+# --- SMART DATE PARSER ---
+def parse_universal_date(date_str):
+    if not date_str: return datetime.now()
+    date_str = str(date_str).strip()
+    date_str = date_str.replace('-', '/').replace('.', '/')
+    for fmt in ("%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return datetime.now()
 
 # --- STATE MANAGEMENT ---
 def get_app_state(market_name):
@@ -188,7 +200,7 @@ def scrape_iraq_disclosures():
     headers = {'User-Agent': 'Mozilla/5.0'}
     
     status_box = st.empty()
-    status_box.info("🚀 Scanning Iraqi Insurance Diwan (Extracting True Dates)...")
+    status_box.info("🚀 Scanning Iraqi Insurance Diwan...")
     
     for category, url in iraq_urls.items():
         try:
@@ -289,38 +301,124 @@ def scrape_iraq_disclosures():
     status_box.empty()
     return data
 
-def scrape_jordan_disclosures(url):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, 'html.parser')
-    table = soup.find('table')
-    if not table: return []
-    tbody = table.find('tbody')
-    rows = tbody.find_all('tr') if tbody else table.find_all('tr')[1:] 
-    
+def scrape_jordan_disclosures(base_url):
     data = []
-    for row in rows:
-        cols = row.find_all('td')
-        if len(cols) < 6: continue
-        disclosure_name = cols[0].text.strip()
-        symbol = cols[1].text.strip()
-        security_name = cols[2].text.strip()
-        category = cols[3].text.strip()
-        date_str = cols[4].text.strip() 
-        file_links = {}
-        for i, key in enumerate(['pdf', 'xbrl', 'xlsx', 'zip'], start=5):
-            if len(cols) > i:
-                tag = cols[i].find('a')
-                if tag and 'href' in tag.attrs:
-                    link = tag['href']
-                    if not link.startswith('http'): link = "https://www.ase.com.jo" + link
-                    file_links[key] = link
-        data.append({
-            "Disclosure": disclosure_name, "Symbol": symbol, "Security Name": security_name,
-            "Category": category, "Date": date_str, "File_Links": file_links
-        })
-    return data
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from webdriver_manager.chrome import ChromeDriverManager
+        
+        # Set up Chrome browser
+        # Set up an invisible, silent Chrome browser
+        chrome_options = Options()
+        chrome_options.add_argument("--headless=new") 
+        chrome_options.add_argument("--log-level=3")
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        for page_num in range(0, 5):
+            url = base_url if page_num == 0 else (f"{base_url}&page={page_num}" if "?" in base_url else f"{base_url}?page={page_num}")
+            
+            driver.get(url)
+            
+            # --- THE QUEUE FIGHTER ---
+            wait_time = 0
+            while "You are now in line" in driver.page_source or "Queue-it" in driver.page_source:
+                print(f"ASE Queue Detected on Page {page_num}. Waiting in line... ({wait_time} seconds)")
+                time.sleep(5)
+                wait_time += 5
+                if wait_time > 300: 
+                    break
+            
+            # 🌟 SMART WAIT: Wait up to 15 seconds for actual data rows to appear in the table
+            try:
+                # We wait until at least one <tr> (table row) inside the <tbody> is present
+                # that does NOT contain the text "No data available"
+                WebDriverWait(driver, 15).until(
+                    lambda d: len(d.find_elements(By.CSS_SELECTOR, "tbody tr")) > 0 and 
+                              "No data available" not in d.find_element(By.CSS_SELECTOR, "tbody").text
+                )
+            except Exception:
+                # If 15 seconds pass and it's still empty, it truly means there are no records
+                print(f"Table remained empty after waiting for {base_url}")
+                pass 
+            
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            
+            tables = soup.find_all('table')
+            correct_table_found = False
+            added_on_this_page = 0
+            
+            for table in tables:
+                tbody = table.find('tbody')
+                rows = tbody.find_all('tr') if tbody else table.find_all('tr')[1:] 
+                
+                if not rows: continue
+                
+                # Check if this table actually has our data (we look for 5+ columns)
+                first_cols = rows[0].find_all(['td', 'th'])
+                if len(first_cols) < 5: 
+                    continue # This is a dummy layout table, skip it!
+                
+                # Check if it's the "No data available" row
+                if "No data available" in rows[0].text:
+                    correct_table_found = True # We found the right table, it's just empty
+                    break 
+                
+                correct_table_found = True # We found the real disclosures table!
+                
+                for row in rows:
+                    cols = row.find_all('td')
+                    if len(cols) < 6: continue
+                    disclosure_name = cols[0].text.strip()
+                    symbol = cols[1].text.strip()
+                    security_name = cols[2].text.strip()
+                    category = cols[3].text.strip()
+                    
+                    raw_date = cols[4].text.strip()
+                    date_match = re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{4}', raw_date)
+                    date_str = date_match.group(0) if date_match else raw_date
+                    
+                    file_links = {}
+                    for i, key in enumerate(['pdf', 'xbrl', 'xlsx', 'zip'], start=5):
+                        if len(cols) > i:
+                            tag = cols[i].find('a')
+                            if tag and 'href' in tag.attrs:
+                                link = tag['href']
+                                if not link.startswith('http'): link = "https://www.ase.com.jo" + link
+                                file_links[key] = link
+                    
+                    if not any(d['Disclosure'] == disclosure_name and d['Date'] == date_str for d in data):
+                        data.append({
+                            "Disclosure": disclosure_name, "Symbol": symbol, "Security Name": security_name,
+                            "Category": category, "Date": date_str, "File_Links": file_links
+                        })
+                        added_on_this_page += 1
+                        
+                if correct_table_found:
+                    break # We finished reading the real table, move on
+            
+            # If we didn't find the table or found 0 new files on this page, stop digging
+            if not correct_table_found or added_on_this_page == 0:
+                break
+                
+        driver.quit() 
+        return data
+        
+    except Exception as e:
+        print(f"ASE Browser Scrape Error: {e}")
+        try: driver.quit() 
+        except: pass
+        return data
 
 def scrape_pcma_disclosures():
     url = "https://www.pcma.ps/%d8%a7%d9%81%d8%b5%d8%a7%d8%ad%d8%a7%d8%aa/"
@@ -396,7 +494,6 @@ def scrape_pex_disclosures_via_api(start_date=None, end_date=None):
         "TIC": "Al-Takaful Palestinian Insurance", "TPIC": "Tamkeen Palestinian Insurance"
     }
     
-    # Adjust PEX dates based on manual selection From/To
     start_date_str = start_date.strftime("%Y-%m-%d") if start_date else "2024-01-01"
     end_date_str = end_date.strftime("%Y-%m-%d") if end_date else datetime.now().strftime("%Y-%m-%d")
     
@@ -484,6 +581,9 @@ def scrape_pex_disclosures_via_api(start_date=None, end_date=None):
 def process_updates(market_name, is_background_job=False, manual_start=None, manual_end=None):
     last_run, seen_disclosures, current_unread_status, current_cached_data = get_app_state(market_name)
     last_run_date = last_run.date() 
+    
+    # 🌟 CRITICAL MEMORY FIX: Ignore memory entirely if searching manually!
+    active_seen_disclosures = [] if (manual_start and manual_end) else seen_disclosures
         
     updates_found = 0
     all_downloaded_files = []
@@ -503,8 +603,8 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
                 file_links = item["File_Links"]
                 disclosure_name = item["Disclosure"]
                 
-                try: disclosure_date = datetime.strptime(date_str, "%d/%m/%Y")
-                except ValueError: continue 
+                # Use smart parser to prevent crash
+                disclosure_date = parse_universal_date(date_str)
                 
                 unique_id = f"{item_symbol}_{disclosure_name}_{date_str}"
                 
@@ -513,7 +613,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
                 if manual_start and manual_end:
                     is_valid_update = (manual_start <= disclosure_date.date() <= manual_end)
                 else:
-                    is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures)
+                    is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in active_seen_disclosures)
                 
                 if is_valid_update:
                     full_company_name = market_data["companies"][item_symbol] 
@@ -536,7 +636,8 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
                         "EXCEL": file_links.get('xlsx', None), "ZIP": file_links.get('zip', None), "Hidden_Files": row_files 
                     })
                     email_body += f"• {full_company_name} - {item['Category']} [{date_str}]\n"
-                    seen_disclosures.append(unique_id)
+                    # Do not save to memory if it's a manual run
+                    if not (manual_start and manual_end): seen_disclosures.append(unique_id)
                     updates_found += 1
 
     elif market_name == "Palestine (PEX & PCMA)":
@@ -550,12 +651,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
             file_links = item["File_Links"]
             disclosure_name = item["Disclosure"]
             
-            try: disclosure_date = datetime.strptime(date_str, "%d/%m/%Y")
-            except ValueError:
-                try: disclosure_date = datetime.strptime(date_str, "%Y-%m-%d")
-                except:
-                    try: disclosure_date = datetime.strptime(date_str, "%Y/%m/%d")
-                    except: disclosure_date = datetime.now() 
+            disclosure_date = parse_universal_date(date_str)
             
             unique_id = f"{item_symbol}_{disclosure_name}_{date_str}"
             
@@ -563,7 +659,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
             if manual_start and manual_end:
                 is_valid_update = (manual_start <= disclosure_date.date() <= manual_end)
             else:
-                is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures)
+                is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in active_seen_disclosures)
             
             if is_valid_update:
                 row_files = [] 
@@ -597,7 +693,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
                 if not row_files and file_links.get('pdf'):
                     email_body += f"  ➔ Document Link: {file_links.get('pdf')}\n"
                     
-                seen_disclosures.append(unique_id)
+                if not (manual_start and manual_end): seen_disclosures.append(unique_id)
                 updates_found += 1
                 
     elif market_name == "Iraq (Insurance Diwan)":
@@ -610,8 +706,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
             disclosure_name = item["Disclosure"]
             category = item["Category"]
             
-            try: disclosure_date = datetime.strptime(date_str, "%d/%m/%Y")
-            except: disclosure_date = datetime.now() 
+            disclosure_date = parse_universal_date(date_str)
             
             pdf_link_str = file_links.get('pdf', '')
             unique_id = f"IRAQ_{disclosure_name}_{pdf_link_str}_{date_str}"
@@ -620,7 +715,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
             if manual_start and manual_end:
                 is_valid_update = (manual_start <= disclosure_date.date() <= manual_end)
             else:
-                is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in seen_disclosures)
+                is_valid_update = (disclosure_date.date() >= last_run_date and unique_id not in active_seen_disclosures)
             
             if is_valid_update:
                 row_files = [] 
@@ -647,7 +742,7 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
                 if not row_files and pdf_link_str:
                     email_body += f"  ➔ News/Document Link: {pdf_link_str}\n"
                     
-                seen_disclosures.append(unique_id)
+                if not (manual_start and manual_end): seen_disclosures.append(unique_id)
                 updates_found += 1
                 
     if updates_found == 0:
@@ -660,7 +755,6 @@ def process_updates(market_name, is_background_job=False, manual_start=None, man
         new_cache = {"email_body": email_body, "downloaded_files": all_downloaded_files, "update_count": updates_found, "table_data": extracted_table_data} if updates_found > 0 else current_cached_data
         update_app_state(market_name, seen_disclosures, new_unread, new_cache)
     else:
-        # If it's a manual "From-To" pull, DO NOT overwrite the background "Last Sync" tracking memory.
         if not (manual_start and manual_end):
             update_app_state(market_name, seen_disclosures, False, {})
         
@@ -721,7 +815,6 @@ def main_app():
     with col_input: 
         selected_market = st.selectbox("Select Target Market:", list(MARKETS.keys()))
         
-        # --- FROM/TO DATE RANGE UI ---
         sync_mode = st.radio("Date Filter Method:", ["Use Last Sync Time", "Choose Manual Date Range"], horizontal=True)
         if sync_mode == "Choose Manual Date Range":
             col_d1, col_d2 = st.columns(2)
@@ -760,7 +853,6 @@ def main_app():
                 st.session_state.update({"email_body": result[0], "downloaded_files": result[1], "report_ready": True, "update_count": result[2], "table_data": result[3]})
                 st.success(f"Extraction complete. {result[2]} updates found.")
                 
-                # Update placeholder text accordingly
                 if manual_start and manual_end:
                     last_sync_placeholder.info(f"**Target Period ({selected_market}):** {manual_start.strftime('%Y-%m-%d')} to {manual_end.strftime('%Y-%m-%d')}")
                 else:
